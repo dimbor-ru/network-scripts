@@ -1,0 +1,29 @@
+# Configuration file for /etc/network/scripts/*
+# Copyleft by dimbor <i@dimbor.ru> 2020
+# based on https://habr.com/ru/post/199478/
+
+#ns_debug: empty - no debug; 1 - to log; 2 - to console
+#ns_debug="1"
+
+DHCPLIB="/var/lib/dhcp"
+LOGFILE="/var/log/network-scripts.log"
+
+# Hosts to ping for connection check
+HOSTS_TO_PING="ya.ru yandex.ru"
+# Resolved IP-addresses list in random order
+ADDRS2PING_FN="/tmp/addrs2ping"
+# List renew interval in minutes
+ADDRS2PING_INT="600"
+# Number of pings to check the connection
+PING_COUNT=1
+
+# Time in seconds to prevent the next instance from starting
+LOCK_TIME=12
+
+# list of LAN interfaces
+IFLAN="xenbr1"
+# WAN prio from first to last
+IFWAN="eth2 eth1"
+
+# gateway for static wan interface
+#GW_eth3="109.73.3.2"

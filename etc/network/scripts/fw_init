@@ -1,0 +1,6 @@
+#!/bin/bash
+
+. /etc/network/scripts/functions
+if [ "$IFACE" == "${IFLAN% *}" ]; then
+	nft -f "$nft_ruleset_fn"
+fi

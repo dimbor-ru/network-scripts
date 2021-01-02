@@ -1,0 +1,5 @@
+#!/bin/bash
+
+. /etc/network/scripts/functions
+
+check_def_route

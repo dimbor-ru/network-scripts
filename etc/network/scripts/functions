@@ -1,0 +1,355 @@
+#!/bin/bash
+# Copyleft by dimbor <i@dimbor.ru> 2020
+# based on https://habr.com/ru/post/199478/
+
+# default options
+DHCPLIB="/var/lib/dhcp"; LOGFILE="/var/log/network-scripts.log"
+HOSTS_TO_PING="ya.ru yandex.ru"
+ADDRS2PING_FN="/tmp/addrs2ping"; ADDRS2PING_INT="600"; PING_COUNT=1
+LOCK_TIME=12
+IFLAN=""; IFWAN=""
+
+. /etc/default/network-scripts # get options
+
+# set internal variables ----------------
+defwan=${IFWAN% *}
+ip4_pattern='[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+'
+num_pattern='[+-]?[0-9]+([.][0-9]+)?'
+dhcp_vars_to_save="ip_address host_name network_number subnet_mask cidr"
+dhcp_vars_to_save+=" subnet broadcast_address routers static_routes"
+dhcp_vars_to_save+=" domain_name domain_search domain_name_servers"
+#dhcp_vars_to_save+=""
+nft_ruleset_fn="/etc/network/ruleset.nft"
+lockfn="/run/nscripts.lock"
+
+# general functions ---------------------
+stringinstring() { case "$2" in *$1*) return 0;; esac; return 1; }
+
+trim() {
+   local v="$*"; v=${v#${v%%[![:space:]]*}};
+   v=${v%${v##*[![:space:]]}}; echo -n "$v"
+}
+
+cutfn() {
+#args: line field_num_start_at_0 [delim]
+   if [ -n "$3" ]; then local IFS="$3"; fi
+	local a=($1);
+   #echo "${a[($2)]}" # negative values works on all systems?
+	echo "${a[@]:($2):1}"
+}
+
+rematchfn() {
+#args: (pattern) <text> [match_num=0] [reversive]
+# if match_num == "all" returns all found matches delimited by newlines
+   local pat n OIFS a ntl nr a r r1 res;
+   pat="$1"; [ -z "$3" -o "$3" = "all" ] && n=0 || n="$3"
+   OIFS=$IFS; local IFS=$'\n'; a=($2); IFS=$OIFS;
+   ntl=${#a[@]}; nr=0; r=(); res="";
+   if [ -z "$4" ]; then
+      for ((i=0;i<$ntl;i++)) {
+         [[ "${a[$i]}" =~ $pat ]] || continue
+         ((nr++)); r+=(${BASH_REMATCH[1]})
+         [ "$nr" = "$n" ] && break
+      }
+   else
+      for ((i=$ntl;i>=0;i--)) {
+         [[ "${a[$i]}" =~ $pat ]] || continue
+         ((nr++)); r+=(${BASH_REMATCH[1]})
+         [ "$nr" = "$n" ] && break
+      }
+   fi
+   if [ "$3" = "all" ]; then
+      for r1 in ${r[@]}; do res+="${res:+$'\n'}$r1"; done
+      echo "$res"
+   else echo "${r[($n)]}"
+   fi
+   [ "$nr" != "0" ]
+}
+
+random_order_args() {
+#args: some words
+#return randomly reordered arguments
+	local res="" tmp=( $@ ) i
+	while [ "${#tmp[@]}" -gt "1" ]; do
+		i=$(($RANDOM % ${#tmp[@]}))
+		res+="${res:+$'\n'}${tmp[$i]}"
+		unset tmp[$i]; tmp=( ${tmp[@]} )
+	done
+	res+="${res:+$'\n'}${tmp[0]}"
+	echo "$res"
+}
+
+cidr_by_netmask() {
+#args: subnet_mask
+	[ -n "$1" ] || return
+   c=0 x=0$( printf '%o' ${1//./ } )
+   while [ $x -gt 0 ]; do
+       let c+=$((x%2)) 'x>>=1'
+   done
+   echo $c
+}
+
+subnet_by_ip_and_mask() {
+#args: ip_address subnet_mask
+	local IFS='.' i1 i2 i3 i4 m1 m2 m3 m4
+	read -r i1 i2 i3 i4 <<< $1; read -r m1 m2 m3 m4 <<< $2
+	echo "$((i1 & m1)).$((i2 & m2)).$((i3 & m3)).$((i4 & m4))"
+}
+
+get_if_ip() {
+	local res=$(ip -4 -o addr show dev $1)
+	res=$(rematchfn "inet[[:space:]]+($ip4_pattern)/" "$res") #"
+	echo "$res"
+}
+
+get_if_subnet() {
+	local res=$(ip -4 route show proto kernel table main dev $1)
+	res=$(cutfn "$res" 0); echo "$res"
+}
+
+log() {
+	local DATE="[$(date "+%d.%m %T")]"
+	[ "$ns_debug" != "2" ] && echo "$DATE $@" >> $LOGFILE || echo "$DATE $@"
+}
+
+warn() {	log "WARNING: $@"; }
+
+cmd() {
+#args: cmdline
+#execute command and log command output
+	local str="" rc
+	str=$($@ 2>&1); rc=$?;
+	[ -n "$ns_debug" ] && log "invoke \"$@\" (rc=$rc)"
+	[ -n "$str" -a "$rc" != "0" ] && {
+		[ -z "$ns_debug" ] && warn "invoke \"$@\" (rc=$rc)"
+		log "out: \"$str\""
+	}
+	return $rc;
+}
+
+get_param_from_file() {
+#args: filename param_name
+	local l res=""
+	[ -f "$1" ] || return
+	while read l; do
+		l=$(trim "$l"); [ -n "$l" ] || continue; [ "${l:0:1}" = '#' ] && continue
+		[ "$(cutfn "$l" 0 '=')" == "$2" ] && {
+			res=$(cutfn "$l" 1 '='); res=${res//\"/}; echo "$res"; return
+		}
+	done < "$1"
+}
+
+do_beeps() {
+#args: [num=1] [series_num=6] [int=0.3]
+	local n="1" wn ns="5" int="0.4"
+	[ -n "$1" ] && n="$1"; [ -n "$2" ] && ns="$2"; [ -n "$3" ] && int="$3"
+	while ((ns > 0)); do
+		wn="$n"
+		while ((wn > 0)); do
+			echo -ne '\007' > /dev/tty2; ((wn--))
+			sleep "$int"s
+		done
+		((ns--)); sleep 1s
+	done
+}
+
+beeps() {
+#args: [num] [series_num] [int]
+	do_beeps $@ &
+	disown $!
+}
+
+wait_and_lock() {
+#args: [wait_interval_in_seconds=7]
+#wait for lock file and create it again
+	local int=$(($LOCK_TIME * 10)); [ -n "$1" ] && int=$(($1 * 10))
+	while ((int > 0)); do
+		[ -f "$lockfn" ] || break; ((int--)); sleep 0.1s
+	done #but show must go on!
+	echo "$$" > "$lockfn"
+}
+
+unlock() { rm -f "$lockfn"; }
+
+# functions for operate routing tables and rules ----------------
+flush_iface_rule_and_rtable() {
+#args: iface
+	local tname="$1-t"
+	[ -n "$(ip rule list table "$tname")" ] && cmd ip rule flush table "$tname"
+	[ -n "$(ip route show table "$tname")" ] && cmd ip route flush table "$tname"
+}
+
+add_ex_routes_2rtable() { # not used now
+#args: iface
+	local tname="$1-t" wif wnet
+	for wif in $IFWAN $IFLAN; do
+		[ "$wif" == "$1" ] && continue
+		wnet=$(get_if_subnet "$wif"); [ -n "$wnet" ] || continue
+		cmd ip route add "$wnet" dev $wif table $tname
+	done
+	cmd route add 127.0.0.0/8 dev lo table $tname
+}
+
+check_rtable_throws() {
+#args: iface
+#these throws needed to use route table for hosts from local subnets
+	local defr=$(ip -4 route show table main)
+	local tname="$1-t" l addr dev rstr
+	while read l; do
+		l=$(trim "$l"); addr=$(cutfn "$l" 0)
+		[  "$addr" == "default" ] && continue
+		dev=$(rematchfn  'dev[[:space:]]+([[:graph:]]+)' "$l") #'
+		stringinstring "$dev" "$IFWAN" && continue
+		rstr=$(ip -4 route show to "$addr" table "$tname")
+		[ "$(cutfn "$rstr" 0)" == "throw" ] && continue
+		[ -n "$rstr" ] && cmd ip route del to "$addr" table "$tname"
+		cmd ip route add throw "$addr" table "$tname"
+	done <<< "$defr"
+
+}
+
+act_route_4ip() { # not used now
+#args: action ip gw iface [table]
+	local tname="$5"; [ -z "$tname" ] && tname="main"
+	local str ogw oif act="add"
+	str=$(ip -4 route show "$2" table "$tname");
+	[ -n "$str" ] && {
+		[ "$1" == "del" ] && { cmd ip route del "$2" table "$tname"; return; }
+		ogw=$(cutfn "$str" 2); oif=$(cutfn "$str" 4)
+		if [ "$3" == "$ogw" -a "$4" == "$oif" ]; then act=""
+		else act="change"
+		fi
+	}
+	[ -n "$act" ] && \
+		cmd ip route "$act" "$2" via "$3" dev "$4" table "$tname"
+}
+
+create_iface_rule_and_rtable() {
+#args: iface ip gw subnet
+	flush_iface_rule_and_rtable "$1" # just in case
+	local tname="$1-t"
+	check_rtable_throws "$1"
+	cmd ip route add "$4" dev "$1" src "$2" table "$tname"
+	cmd ip route add default via "$3" dev "$1" table "$tname"
+
+	cmd ip rule add from "$2" table "$tname"
+}
+
+# functions for check of connection status ---------------------------
+_create_pinglist() { # not used now
+#args: hostnames
+#resolve given hostnames and return adresses (host util)
+	local wh ws1 ws2 res=""
+	local exe=$(which "host")
+	if [ -n "$exe" ]; then
+		for wh in $@; do #resolve all
+			ws1=$($exe -4t A "$wh")
+			while read ws2; do
+				[ "$(cutfn "$ws2" -2)" == "address" ] && {
+					res+="${res:+$'\n'}$(cutfn "$ws2" -1)"
+				}
+			done <<< "$ws1"
+		done
+	else warn "Unable to resolve host addresses, host util not found!"
+	fi
+	[ -z "$res" ] && res="8.8.8.8" #google is always to blame
+	echo "$res"
+}
+
+create_pinglist() {
+#args: hostnames
+#resolve given hostnames and return adresses (getent util)
+	local wh ws1 ws2 res=""
+	for wh in $@; do #resolve all
+		ws1=$(getent ahostsv4 "$wh")
+		while read ws2; do
+			[ "$(cutfn "$ws2" 1)" == "DGRAM" ] && {
+				res+="${res:+$'\n'}$(cutfn "$ws2" 0)"
+			}
+		done <<< "$ws1"
+	done
+	echo "$res"
+}
+
+check_addrs2ping() {
+#check addresses to ping and renew list if needed
+	local fl="0" txt ct ft rint
+	[ -f "$ADDRS2PING_FN" ] || fl=1;
+	[ "$fl" == "0" ] && {
+		ct=$(date +%s); ft=$(stat -c %Y "$ADDRS2PING_FN" 2>/dev/null)
+	 	rint=$(($ADDRS2PING_INT * 60))
+		(($ct > $ft + $rint)) && fl="1"
+	}
+	[ "$fl" == "1" ] && {
+		txt=$(create_pinglist $HOSTS_TO_PING)
+		[ -n "$txt" ] && txt=$(random_order_args $txt)
+		[ -z "$txt" ] && txt="8.8.8.8" #google is always to blame
+		echo "$txt" > "$ADDRS2PING_FN"
+	}
+}
+
+ping_addrs() {
+#args: src_ip dst_ip1... [dst_ipN]
+#pings given addresses
+	local src_ip="$1" a; shift
+	for a in $@; do # first success need only
+		ping -I "$src_ip" -c 1 "$a" >/dev/null 2>&1 && return 0
+	done
+	return 127
+}
+
+pinged_ifaces() {
+#args: in iface-names
+#return string of properly pinged iface-names
+	local res="" ifn src_ip a2ping="8.8.8.8"
+	[ -f "$ADDRS2PING_FN" ] && a2ping=$(< "$ADDRS2PING_FN");
+	for ifn in $@; do
+		src_ip=$(get_if_ip "$ifn")
+		[ -z "$src_ip" ] && continue
+		ping_addrs "$src_ip" $a2ping && res+="${res:+$' '}$ifn"
+	done
+	echo "$res"
+}
+
+# functions for default route set --------------------------------
+get_router() {
+#args: iface name
+	local res="" dscfn="$DHCPLIB/$1.dsc"
+	[ -f "$dscfn" ] && {
+		res=$(get_param_from_file "$dscfn" "saved_routers")
+		res=$(cutfn "$res" 0)
+	}
+	[ -z "$res" ] && { #try to get option in case of static iface
+		eval "res=\$GW_$1"
+	}
+	echo "$res"
+}
+
+check_def_route() {
+#args: [iface_name_to exclude]
+#this checks and sets default route if needed
+	wait_and_lock
+	local defgw="" defif="" newif newgw act
+	local strif="$IFWAN" aif=($IFWAN) ca=${#aif[@]} i idx
+	defgw=$(ip -4 route show default table main)
+	defif=$(cutfn "$defgw" -1); defgw=$(cutfn "$defgw" 2)
+	[ -n "$1" ] && strif=${strif//$1/} # exclude of fresh dead
+	strif=$(pinged_ifaces $strif);
+	[ -z "$strif" ] && \
+		{ warn "No worked links found!"; beeps 10 "" 0.2; unlock; return 127; }
+	newif=${strif% *} # get first available iface
+	newgw=$(get_router "$newif")
+	[ -z "$newgw" ] && \
+		{ warn "Gateway for $newif is empty!"; beeps 10 "" 0.2; unlock; return 127; }
+	[ "$defgw" == "$newgw" -a "$defif" == "$newif" ] && \
+		{ check_addrs2ping; unlock; return 0; } # it's all right
+	for (( i=0; i<ca; i++ )); do # find iface index for beeps
+		[ "${aif[$i]}" == "$newif" ] && { idx=$((i + 1)); break; }
+	done
+	[ -n "$defgw" ] && act="change" || act="add"
+	if	cmd ip route "$act" default via "$newgw" dev "$newif" table main; then
+		log "$act default via $defgw dev $defif -> via $newgw dev $newif"
+		beeps $idx; unlock; return $idx
+	fi
+	beeps 10 "" 0.2; unlock; return 127
+}

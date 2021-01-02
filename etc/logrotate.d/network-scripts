@@ -1,0 +1,6 @@
+/var/log/network-scripts.log {
+  weekly
+  missingok
+  rotate 7
+  compress
+}
