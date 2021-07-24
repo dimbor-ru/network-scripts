@@ -340,11 +340,11 @@ check_def_route() {
 	[ -n "$1" ] && strif=${strif//$1/} # exclude of fresh dead
 	strif=$(pinged_ifaces $strif);
 	[ -z "$strif" ] && \
-		{ warn "No worked links found!"; beeps 10 "" 0.2; unlock; return 127; }
+		{ warn "No worked links found!"; beeps 10 4 0.17; unlock; return 127; }
 	newif=${strif% *} # get first available iface
 	newgw=$(get_router "$newif")
 	[ -z "$newgw" ] && \
-		{ warn "Gateway for $newif is empty!"; beeps 10 "" 0.2; unlock; return 127; }
+		{ warn "Gateway for $newif is empty!"; beeps 10 4 0.17; unlock; return 127; }
 	[ "$defgw" == "$newgw" -a "$defif" == "$newif" ] && \
 		{ check_addrs2ping; unlock; return 0; } # it's all right
 	for (( i=0; i<ca; i++ )); do # find iface index for beeps
@@ -355,5 +355,5 @@ check_def_route() {
 		log "$act default via $defgw dev $defif -> via $newgw dev $newif"
 		beeps $idx; unlock; return $idx
 	fi
-	beeps 10 "" 0.2; unlock; return 127
+	beeps 10 4 0.17; unlock; return 127
 }
