@@ -306,7 +306,11 @@ pinged_ifaces() {
 	for ifn in $@; do
 		src_ip=$(get_if_ip "$ifn")
 		[ -z "$src_ip" ] && continue
-		ping_addrs "$src_ip" $a2ping && res+="${res:+$' '}$ifn"
+		if ping_addrs "$src_ip" $a2ping; then
+			res+="${res:+$' '}$ifn"
+		else
+			log "failed pings from $ifn $src_ip to ip-list \""$a2ping"\""
+		fi
 	done
 	echo "$res"
 }
