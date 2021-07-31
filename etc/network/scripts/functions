@@ -293,7 +293,7 @@ ping_addrs() {
 #pings given addresses
 	local src_ip="$1" a; shift
 	for a in $@; do # first success need only
-		ping -I "$src_ip" -c 1 "$a" >/dev/null 2>&1 && return 0
+		ping -I "$src_ip" -c "$PING_COUNT" "$a" >/dev/null 2>&1 && return 0
 	done
 	return 127
 }
