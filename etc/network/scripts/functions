@@ -97,7 +97,7 @@ subnet_by_ip_and_mask() {
 }
 
 get_if_ip() {
-	local res=$(ip -4 -o addr show dev $1)
+	local res=$(ip -4 -o addr show dev $1 2>/dev/null)
 	res=$(rematchfn "inet[[:space:]]+($ip4_pattern)/" "$res") #"
 	echo "$res"
 }
