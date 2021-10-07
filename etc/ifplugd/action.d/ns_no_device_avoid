@@ -1,0 +1,10 @@
+#!/bin/bash
+
+[ "$2" = "down" ] || exit
+. /etc/default/ifplugd
+[ "$1" = "${HOTPLUG_INTERFACES% *}" ] || exit
+
+. /etc/network/scripts/functions
+flush_iface_rule_and_rtable "$1"
+[ -f "$dscfn" ] && rm -f "$dscfn"
+check_def_route || true
