@@ -6,7 +6,7 @@
 dscfn="$DHCPLIB/$interface.dsc"
 case $reason in
 	BOUND|RENEW|REBIND|REBOOT)
-		log "dhc_exit $interface $reason $new_ip_address"; fl="1"
+		[ -n "$ns_debug" ] && log "dhc_exit $interface $reason $new_ip_address"; fl="1"
 		[ -f "$dscfn" ] && . "$dscfn"
 		[ "$reason" == "BOUND" -o "$reason" == "REBOOT" ] && fl="2"
 		[ -z "$saved_ip_address" -o -z "$saved_routers" -o -z "$saved_subnet" ] && {
@@ -26,7 +26,7 @@ case $reason in
 		fi
 	;;
 	EXPIRE|FAIL|STOP|RELEASE)
-		log "dhc_exit $interface $reason"
+		[ -n "$ns_debug" ] && log "dhc_exit $interface $reason"
 		flush_iface_rule_and_rtable "$interface"
 		# snat clean?
 		[ -f "$dscfn" ] && rm -f "$dscfn"
@@ -35,6 +35,6 @@ case $reason in
 	PREINIT) # don't log if this stages entered
 	;;
 	*)
-		log "dhc_exit $interface $reason!"
+		[ -n "$ns_debug" ] && log "dhc_exit $interface $reason!"
 	;;
 esac

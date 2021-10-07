@@ -16,6 +16,8 @@ ADDRS2PING_FN="/tmp/addrs2ping"
 ADDRS2PING_INT="600"
 # Number of pings to check the connection
 PING_COUNT=1
+# File to store alive ifaces between pings
+IFS_ALIVE_FN="/tmp/ns_alive_ifaces"
 
 # Time in seconds to prevent the next instance from starting
 LOCK_TIME=12

@@ -39,12 +39,12 @@ case $reason in
 		esac
 	;;
 	#EXPIRE|FAIL|STOP|RELEASE)
-	#	log "dhc_enter $interface $reason"
+	#	[ -n "$ns_debug" ] && log "dhc_enter $interface $reason"
 	#;;
 	#PREINIT) # don't log if this stage entered
 	EXPIRE|FAIL|STOP|RELEASE|PREINIT) # don't log if this stages entered
 	;;
 	*)
-			log "dhc_enter $interface $reason!"
+			[ -n "$ns_debug" ] && log "dhc_enter $interface $reason!"
 	;;
 esac

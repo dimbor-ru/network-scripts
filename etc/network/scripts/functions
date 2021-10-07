@@ -6,7 +6,7 @@
 DHCPLIB="/var/lib/dhcp"; LOGFILE="/var/log/network-scripts.log"
 HOSTS_TO_PING="ya.ru yandex.ru"
 ADDRS2PING_FN="/tmp/addrs2ping"; ADDRS2PING_INT="600"; PING_COUNT=1
-LOCK_TIME=12
+LOCK_TIME=12; IFS_ALIVE_FN="/tmp/ns_alive_ifaces"
 IFLAN=""; IFWAN=""
 
 . /etc/default/network-scripts # get options
@@ -312,7 +312,7 @@ pinged_ifaces() {
 			log "failed pings from $ifn $src_ip to ip-list \""$a2ping"\""
 		fi
 	done
-	echo "$res"
+	echo "$res" >"$IFS_ALIVE_FN"; echo "$res"
 }
 
 # functions for default route set --------------------------------
@@ -334,7 +334,9 @@ check_def_route() {
 #this checks and sets default route if needed
 	wait_and_lock
 	local defgw="" defif="" newif newgw act
-	local strif="$IFWAN" aif=($IFWAN) ca=${#aif[@]} i idx
+	local strif="$IFWAN" aif=($IFWAN) ca=${#aif[@]} i idx ostrif=""
+	[ -r "$IFS_ALIVE_FN" ] && ostrif="$(< "$IFS_ALIVE_FN")"
+	local oif=($ostrif)
 	defgw=$(ip -4 route show default table main)
 	defif=$(cutfn "$defgw" -1); defgw=$(cutfn "$defgw" 2)
 	[ -n "$1" ] && strif=${strif//$1/} # exclude of fresh dead
@@ -345,6 +347,8 @@ check_def_route() {
 	newgw=$(get_router "$newif")
 	[ -z "$newgw" ] && \
 		{ warn "Gateway for $newif is empty!"; beeps 10 4 0.17; unlock; return 127; }
+	[  -n "$ns_debug" -o "$strif" != "$ostrif" -o "$defgw" != "$newgw" ] && \
+	  log "'$ostrif' -> '$strif'; gw: $defif [$defgw] -> $newif [$newgw]"
 	[ "$defgw" == "$newgw" -a "$defif" == "$newif" ] && \
 		{ check_addrs2ping; unlock; return 0; } # it's all right
 	for (( i=0; i<ca; i++ )); do # find iface index for beeps
