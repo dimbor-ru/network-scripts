@@ -32,10 +32,12 @@ trim() {
 
 cutfn() {
 #args: line field_num_start_at_0 [delim]
+	set -f
    if [ -n "$3" ]; then local IFS="$3"; fi
 	local a=($1);
    #echo "${a[($2)]}" # negative values works on all systems?
 	echo "${a[@]:($2):1}"
+	set +f
 }
 
 rematchfn() {
