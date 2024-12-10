@@ -3,5 +3,5 @@
 . /etc/network/scripts/functions
 if [ "$IFACE" == "${IFLAN%% *}" ]; then
 	echo >"$IFS_ALIVE_FN"
-	nft -f "$nft_ruleset_fn"
+	/usr/sbin/nft -f "$nft_ruleset_fn"
 fi
