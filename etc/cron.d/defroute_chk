@@ -1,1 +1,1 @@
-*/2 * * * * root /etc/network/scripts/defroute_chk
+*/1 * * * * root /etc/network/scripts/defroute_chk
