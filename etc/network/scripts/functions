@@ -7,6 +7,7 @@ DHCPLIB="/var/lib/dhcp"; LOGFILE="/var/log/network-scripts.log"
 HOSTS_TO_PING="ya.ru yandex.ru"
 ADDRS2PING_FN="/tmp/addrs2ping"; ADDRS2PING_INT="600"; PING_COUNT=1
 LOCK_TIME=12; IFS_ALIVE_FN="/tmp/ns_alive_ifaces"
+IFS_SPEED_FN="/tmp/ns_ifaces_speed"
 IFLAN=""; IFWAN=""
 
 . /etc/default/network-scripts # get options
@@ -237,6 +238,39 @@ create_iface_rule_and_rtable() {
 	cmd ip rule add from "$2" table "$tname"
 }
 
+# functions to check links ---------------------------
+speed_of_ifc() {
+#args: iface_name
+	local res=0 fn="/sys/class/net/$1/speed"
+	[ -r "$fn" ] && res=$(< "$fn")
+	echo "$res"
+}
+
+save_ifcs_speed() {
+#arg: ifaces string
+	local ifn speed
+	[ -f "$IFS_SPEED_FN" ] && rm -f "$IFS_SPEED_FN"
+	for ifn in $1; do
+		speed=$(speed_of_ifc $ifn)
+		echo "$ifn=$speed" >> "$IFS_SPEED_FN"
+	done
+}
+
+check_ifcs_speed() {
+	local ifn speed ospeed outstr=""
+	for ifn in $IFWAN; do
+		speed=$(speed_of_ifc $ifn)
+		ospeed=$(get_param_from_file "$IFS_SPEED_FN" $ifn)
+		if [ "$speed" != "$ospeed" ]; then
+			outstr+=" $ifn: $ospeed -> $speed;"
+		fi
+	done
+	[ -n "$outstr" ] && {
+		log "speed changed$outstr"
+		save_ifcs_speed "$IFWAN"
+	}
+}
+
 # functions for check of connection status ---------------------------
 _create_pinglist() { # not used now
 #args: hostnames
@@ -337,6 +371,7 @@ check_def_route() {
 	wait_and_lock
 	local defgw="" defif="" newif newgw act
 	local strif="$IFWAN" aif=($IFWAN) ca=${#aif[@]} i idx ostrif=""
+	check_ifcs_speed
 	[ -r "$IFS_ALIVE_FN" ] && ostrif="$(< "$IFS_ALIVE_FN")"
 	local oif=($ostrif)
 	defgw=$(ip -4 route show default table main)
