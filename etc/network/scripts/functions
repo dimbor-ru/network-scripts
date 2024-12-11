@@ -345,7 +345,8 @@ pinged_ifaces() {
 		if ping_addrs "$src_ip" $a2ping; then
 			res+="${res:+$' '}$ifn"
 		else
-			log "failed pings from $ifn $src_ip to ip-list \""$a2ping"\""
+			log "failed pings from $ifn [$src_ip]"
+			#log "failed pings from $ifn $src_ip to ip-list \""$a2ping"\""
 		fi
 	done
 	echo "$res" >"$IFS_ALIVE_FN"; echo "$res"
