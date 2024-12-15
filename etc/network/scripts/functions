@@ -236,6 +236,11 @@ create_iface_rule_and_rtable() {
 	cmd ip route add default via "$3" dev "$1" table "$tname"
 
 	cmd ip rule add from "$2" table "$tname"
+	if stringinstring $1 "$IFS_CTMARK"; then
+		local in2=${1:(-1):1}
+		local in1=0; [ "${1%$in2}" = "eth" ] || in1=1
+		cmd ip rule add fwmark "0x1$in1$in2" table "$tname"
+	fi
 }
 
 # functions to check links ---------------------------

@@ -83,6 +83,12 @@ table ip mangle {
 }
 
 table ip nat {
+	chain premark { type filter hook prerouting priority -150; policy accept;
+		iifname eth1 tcp dport @pw ct state new ct mark set 0x101
+		iifname eth2 tcp dport @pw ct state new ct mark set 0x102
+		iifname xenbr1 ct mark != 0 meta mark set ct mark
+	}
+
 	chain prerouting { type nat hook prerouting priority -150; policy accept;
 		#iif xenbr1 tcp dport http counter redirect to squid
 		iifname { eth1, eth2 } tcp dport 222 counter dnat 192.168.1.33:ssh

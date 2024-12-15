@@ -27,5 +27,8 @@ IFLAN="xenbr1"
 # WAN prio from first to last
 IFWAN="eth2 eth1"
 
+# add route rules for marked packets
+#IFS_CTMARK="eth2 eth1"
+
 # gateway for static wan interface
 #GW_eth3="109.73.3.2"
