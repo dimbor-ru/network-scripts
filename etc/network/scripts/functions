@@ -381,7 +381,7 @@ check_def_route() {
 	strif=$(pinged_ifaces $strif);
 	[ -z "$strif" ] && \
 		{ warn "No worked links found!"; beeps 10 4 0.17; unlock; return 127; }
-	newif=${strif% *} # get first available iface
+	newif=${strif%% *} # get first available iface
 	newgw=$(get_router "$newif")
 	[ -z "$newgw" ] && \
 		{ warn "Gateway for $newif is empty!"; beeps 10 4 0.17; unlock; return 127; }
